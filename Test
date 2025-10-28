@@ -1,0 +1,16 @@
+== Example with specific IP address ==
+
+python start_sampleapp.py --server-ip 192.168.56.103 --server-port 9000
+
+python start_proxy.py --server-ip 192.168.56.103 --server-port 8080
+
+python start_backend.py --server-ip 192.168.56.103 --server-port 9000
+
+
+== Example with localhost ==
+
+python start_proxy.py --server-ip 127.0.0.1 --server-port 8080
+
+python start_sampleapp.py --server-ip 127.0.0.1 --server-port 9000
+
+python start_backend.py --server-ip 127.0.0.1 --server-port 9000

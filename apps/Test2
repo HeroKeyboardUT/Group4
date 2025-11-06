@@ -1,0 +1,16 @@
+== Start Central Server ==
+python chat_server.py --server-ip 127.0.0.1 --server-port 8000
+
+== Start Peers ==
+
+# Terminal 1 - Alice
+
+python chat_peer.py --username Alice --server-ip 127.0.0.1 --peer-port 5001
+
+# Terminal 2 - Bob
+
+python chat_peer.py --username Bob --server-ip 127.0.0.1 --peer-port 5002
+
+# Terminal 3 - Charlie
+
+python chat_peer.py --username Charlie --server-ip 127.0.0.1 --peer-port 5003

@@ -168,10 +168,12 @@ class Response():
             # base_dir = BASE_DIR+"static/"
             # -> Phai sua lai thanh cai duoi thi moi hoat dong duoc
             # =====================================================
-            
-            base_dir = BASE_DIR
-
-            self.headers['Content-Type']='image/{}'.format(sub_type)
+            if sub_type == 'x-icon':
+                base_dir = BASE_DIR+"static/images/"
+                self.headers['Content-Type']='image/{}'.format(sub_type)
+            else:
+                base_dir = BASE_DIR
+                self.headers['Content-Type']='image/{}'.format(sub_type)
         elif main_type == 'application':
             base_dir = BASE_DIR+"apps/"
             self.headers['Content-Type']='application/{}'.format(sub_type)
@@ -243,7 +245,7 @@ class Response():
                 "Cache-Control": "no-cache",
                 "Content-Type": "{}".format(self.headers['Content-Type']),
                 "Content-Length": "{}".format(len(self._content)),
-                "Cookie": "{}".format(reqhdr.get("Cookie", "sessionid=xyz789")), #dummy cookie
+                "Set-Cookie": "{}".format(reqhdr.get("Cookie", "sessionid=xyz789")),
         #
         # TODO prepare the request authentication
         #
@@ -273,10 +275,11 @@ class Response():
         )
         
         for key, val in headers.items():
+            if request.auth == False and key == "Set-Cookie":
+                continue
             fmt_header += "{}: {}\r\n".format(key, val)
         
         fmt_header += "\r\n"
-        # print ("[Response] Built response header:\n{}".format(fmt_header))
 
 
         return str(fmt_header).encode('utf-8')

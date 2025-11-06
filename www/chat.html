@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>P2P Chat Room</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px;
+        min-height: 100vh;
+      }
+      h1 {
+        text-align: center;
+        color: white;
+        margin-bottom: 20px;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+      }
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 20px;
+      }
+      .section {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+      .section.full-width {
+        grid-column: 1 / -1;
+        max-height: 400px;
+        overflow-y: auto;
+      }
+      h2,
+      h3 {
+        margin-bottom: 15px;
+        color: #667eea;
+      }
+      input[type="text"] {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 10px;
+        border: 2px solid #e0e0e0;
+        border-radius: 5px;
+        font-size: 14px;
+      }
+      input[type="text"]:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+      button {
+        padding: 10px 15px;
+        background: #667eea;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background 0.3s;
+      }
+      button:hover {
+        background: #764ba2;
+      }
+      .input-group {
+        display: flex;
+        gap: 10px;
+      }
+      .input-group input {
+        flex: 1;
+      }
+      ul {
+        list-style: none;
+      }
+      ul li {
+        padding: 10px;
+        margin-bottom: 8px;
+        background: #f5f5f5;
+        border-radius: 5px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      ul li button {
+        padding: 5px 10px;
+        font-size: 12px;
+      }
+      #status {
+        padding: 10px;
+        border-radius: 5px;
+        font-weight: bold;
+        text-align: center;
+      }
+      #messages p {
+        padding: 10px;
+        margin-bottom: 10px;
+        background: #f9f9f9;
+        border-left: 4px solid #667eea;
+        border-radius: 5px;
+      }
+      .empty-state {
+        text-align: center;
+        color: #999;
+        padding: 20px;
+        font-style: italic;
+      }
+      .message-broadcast {
+        border-left-color: #764ba2;
+      }
+      .message-channel {
+        border-left-color: #f093fb;
+      }
+      .message-direct {
+        border-left-color: #667eea;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🚀 P2P Chat Room</h1>
+
+    <div class="container">
+      <!-- Peer List Section -->
+      <div class="section">
+        <h2>👥 Online Peers</h2>
+        <button onclick="loadPeers()">🔄 Refresh Peers</button>
+        <div id="peerList"></div>
+      </div>
+
+      <!-- Channel Section -->
+      <div class="section">
+        <h2>📢 Channels</h2>
+        <button onclick="loadChannels()">🔄 Refresh Channels</button>
+        <div class="input-group" style="margin-top: 10px">
+          <input type="text" id="newChannelName" placeholder="Channel name" />
+          <button onclick="createChannel()">➕ Create</button>
+        </div>
+        <div id="channelList"></div>
+      </div>
+
+      <!-- Direct Message Section -->
+      <div class="section">
+        <h2>💬 Direct Message</h2>
+        <input
+          type="text"
+          id="directTo"
+          placeholder="Peer ID (e.g., peer_5001)"
+        />
+        <input type="text" id="directMessage" placeholder="Your message" />
+        <button onclick="sendDirect()" style="margin-top: 10px; width: 100%">
+          📤 Send Direct
+        </button>
+      </div>
+
+      <!-- Broadcast Section -->
+      <div class="section">
+        <h2>📡 Broadcast</h2>
+        <input
+          type="text"
+          id="broadcastMessage"
+          placeholder="Broadcast message to all peers"
+        />
+        <button onclick="sendBroadcast()" style="margin-top: 10px; width: 100%">
+          📣 Broadcast to All
+        </button>
+      </div>
+
+      <!-- Channel Message Section -->
+      <div class="section">
+        <h2>💭 Channel Message</h2>
+        <input type="text" id="channelName" placeholder="Channel name" />
+        <input type="text" id="channelMessage" placeholder="Your message" />
+        <button onclick="sendToChannel()" style="margin-top: 10px; width: 100%">
+          📨 Send to Channel
+        </button>
+      </div>
+
+      <!-- Status Section -->
+      <div class="section">
+        <h3>ℹ️ Status</h3>
+        <div id="status"></div>
+      </div>
+
+      <!-- Messages Section -->
+      <div class="section full-width">
+        <h2>📬 Messages</h2>
+        <button onclick="loadMessages()" style="margin-bottom: 10px">
+          🔄 Refresh Messages
+        </button>
+        <div id="messages"></div>
+      </div>
+    </div>
+
+    <script>
+      // Parse form data response
+      function parseFormData(formString) {
+        const result = {};
+        if (!formString) return result;
+
+        const pairs = formString.split("&");
+        for (let pair of pairs) {
+          const eqIndex = pair.indexOf("=");
+          if (eqIndex > 0) {
+            const key = pair.substring(0, eqIndex);
+            const value = pair.substring(eqIndex + 1);
+            result[key] = decodeURIComponent(value.replace(/\+/g, " "));
+          }
+        }
+        return result;
+      }
+
+      // Build form data from object
+      function buildFormData(obj) {
+        const parts = [];
+        for (let key in obj) {
+          const value = encodeURIComponent(obj[key]).replace(/%20/g, "+");
+          parts.push(key + "=" + value);
+        }
+        return parts.join("&");
+      }
+
+      // Send HTTP request with form data
+      async function sendRequest(method, path, data = null) {
+        try {
+          const options = {
+            method: method,
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+          };
+
+          if (data && method === "POST") {
+            options.body = buildFormData(data);
+          }
+
+          const response = await fetch(path, options);
+          const text = await response.text();
+          return parseFormData(text);
+        } catch (error) {
+          showStatus("Network Error: " + error.message, true);
+          return { status: "error", message: error.message };
+        }
+      }
+
+      // Show status message
+      function showStatus(message, isError = false) {
+        const statusDiv = document.getElementById("status");
+        statusDiv.textContent = message;
+        statusDiv.style.color = isError ? "#dc3545" : "#28a745";
+        statusDiv.style.background = isError ? "#ffe6e6" : "#e6ffe6";
+        setTimeout(() => {
+          statusDiv.textContent = "";
+          statusDiv.style.background = "";
+        }, 5000);
+      }
+
+      // Load and display peers
+      async function loadPeers() {
+        const result = await sendRequest("GET", "/api/peers");
+        const peerListDiv = document.getElementById("peerList");
+
+        if (result.status === "success") {
+          const total = parseInt(result.total || 0);
+
+          if (total === 0) {
+            peerListDiv.innerHTML =
+              '<div class="empty-state">No peers online</div>';
+            return;
+          }
+
+          let html = "<ul>";
+
+          for (let i = 0; i < total; i++) {
+            const peerData = result["peer_" + i];
+            if (peerData) {
+              const parts = peerData.split(",");
+              if (parts.length >= 4) {
+                const [id, ip, port, username] = parts;
+                html +=
+                  "<li><div><strong>" +
+                  username +
+                  "</strong><br><small>" +
+                  id +
+                  " • " +
+                  ip +
+                  ":" +
+                  port +
+                  "</small></div></li>";
+              }
+            }
+          }
+
+          html += "</ul>";
+          peerListDiv.innerHTML = html;
+          showStatus("✓ Loaded " + total + " peers");
+        } else {
+          peerListDiv.innerHTML =
+            '<div class="empty-state">Error: ' +
+            (result.message || "Unknown error") +
+            "</div>";
+          showStatus(
+            "Failed to load peers: " + (result.message || "Unknown"),
+            true
+          );
+        }
+      }
+
+      // Load and display channels
+      async function loadChannels() {
+        const result = await sendRequest("GET", "/api/channels");
+        const channelListDiv = document.getElementById("channelList");
+
+        if (result.status === "success") {
+          const total = parseInt(result.total || 0);
+
+          if (total === 0) {
+            channelListDiv.innerHTML =
+              '<div class="empty-state">No channels available</div>';
+            return;
+          }
+
+          let html = "<ul>";
+
+          for (let i = 0; i < total; i++) {
+            const channelData = result["channel_" + i];
+            if (channelData) {
+              const parts = channelData.split(",");
+              if (parts.length >= 3) {
+                const [name, creator, memberCount] = parts;
+                html +=
+                  "<li><div><strong>" +
+                  name +
+                  "</strong><br><small>Creator: " +
+                  creator +
+                  " • Members: " +
+                  memberCount +
+                  "</small></div>";
+                html +=
+                  "<button onclick=\"joinChannel('" +
+                  name +
+                  "')\">Join</button></li>";
+              }
+            }
+          }
+
+          html += "</ul>";
+          channelListDiv.innerHTML = html;
+          showStatus("✓ Loaded " + total + " channels");
+        } else {
+          channelListDiv.innerHTML =
+            '<div class="empty-state">Error: ' +
+            (result.message || "Unknown error") +
+            "</div>";
+          showStatus(
+            "Failed to load channels: " + (result.message || "Unknown"),
+            true
+          );
+        }
+      }
+
+      // Create new channel
+      async function createChannel() {
+        const channelName = document
+          .getElementById("newChannelName")
+          .value.trim();
+        if (!channelName) {
+          showStatus("⚠️ Please enter channel name", true);
+          return;
+        }
+
+        const result = await sendRequest("POST", "/api/channel/create", {
+          channel: channelName,
+        });
+
+        if (result.status === "success") {
+          showStatus("✓ Channel created: " + channelName);
+          document.getElementById("newChannelName").value = "";
+          loadChannels();
+        } else {
+          showStatus(
+            "✗ " + (result.message || "Failed to create channel"),
+            true
+          );
+        }
+      }
+
+      // Join channel
+      async function joinChannel(channelName) {
+        const result = await sendRequest("POST", "/api/channel/join", {
+          channel: channelName,
+        });
+
+        if (result.status === "success") {
+          showStatus("✓ Joined channel: " + channelName);
+          setTimeout(loadChannels, 500);
+        } else {
+          showStatus("✗ " + (result.message || "Failed to join channel"), true);
+        }
+      }
+
+      // Send direct message
+      async function sendDirect() {
+        const to = document.getElementById("directTo").value.trim();
+        const message = document.getElementById("directMessage").value.trim();
+
+        if (!to || !message) {
+          showStatus("⚠️ Please enter peer ID and message", true);
+          return;
+        }
+
+        const result = await sendRequest("POST", "/api/send", {
+          to: to,
+          message: message,
+        });
+
+        if (result.status === "success") {
+          showStatus("✓ Message sent to " + to);
+          document.getElementById("directMessage").value = "";
+          setTimeout(loadMessages, 500);
+        } else {
+          showStatus("✗ " + (result.message || "Failed to send message"), true);
+        }
+      }
+
+      // Send broadcast message
+      async function sendBroadcast() {
+        const message = document
+          .getElementById("broadcastMessage")
+          .value.trim();
+
+        if (!message) {
+          showStatus("⚠️ Please enter message", true);
+          return;
+        }
+
+        const result = await sendRequest("POST", "/api/broadcast", {
+          message: message,
+        });
+
+        if (result.status === "success") {
+          showStatus("✓ " + (result.message || "Message broadcasted"));
+          document.getElementById("broadcastMessage").value = "";
+          setTimeout(loadMessages, 500);
+        } else {
+          showStatus("✗ " + (result.message || "Failed to broadcast"), true);
+        }
+      }
+
+      // Send message to channel
+      async function sendToChannel() {
+        const channel = document.getElementById("channelName").value.trim();
+        const message = document.getElementById("channelMessage").value.trim();
+
+        if (!channel || !message) {
+          showStatus("⚠️ Please enter channel name and message", true);
+          return;
+        }
+
+        const result = await sendRequest("POST", "/api/channel/send", {
+          channel: channel,
+          message: message,
+        });
+
+        if (result.status === "success") {
+          showStatus("✓ " + (result.message || "Message sent to channel"));
+          document.getElementById("channelMessage").value = "";
+          setTimeout(loadMessages, 500);
+        } else {
+          showStatus(
+            "✗ " + (result.message || "Failed to send to channel"),
+            true
+          );
+        }
+      }
+
+      // Load and display messages
+      async function loadMessages() {
+        const result = await sendRequest("GET", "/api/messages");
+        const messagesDiv = document.getElementById("messages");
+
+        if (result.status === "success") {
+          const count = parseInt(result.count || 0);
+
+          if (count === 0) {
+            messagesDiv.innerHTML =
+              '<div class="empty-state">No messages yet</div>';
+            return;
+          }
+
+          let html = "";
+
+          for (let i = 0; i < count; i++) {
+            const msgData = result["msg_" + i];
+            if (msgData) {
+              const parts = msgData.split("|");
+              if (parts.length >= 5) {
+                const [from, to, content, type, channel] = parts;
+
+                let className = "message-direct";
+                let prefix = "";
+
+                if (type === "broadcast") {
+                  className = "message-broadcast";
+                  prefix = "📡 ";
+                } else if (type === "channel") {
+                  className = "message-channel";
+                  prefix = "📢 [" + channel + "] ";
+                } else if (to) {
+                  prefix = "💬 ";
+                }
+
+                html +=
+                  "<p class='" +
+                  className +
+                  "'><strong>" +
+                  from +
+                  "</strong> " +
+                  prefix +
+                  ": " +
+                  content +
+                  "</p>";
+              }
+            }
+          }
+
+          messagesDiv.innerHTML = html;
+          // Auto scroll to bottom
+          messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+      }
+
+      // Auto-refresh messages every 3 seconds
+      setInterval(loadMessages, 3000);
+
+      // Initial load
+      window.onload = function () {
+        showStatus("🔄 Loading data...");
+        loadPeers();
+        loadChannels();
+        loadMessages();
+      };
+    </script>
+  </body>
+</html>

@@ -40,7 +40,7 @@ PROXY_PASS = {
     "app1.local": ('192.168.56.103', 9001),
     "app2.local": ('192.168.56.103', 9002),
 }
-
+round_robin_index = {}
 
 def forward_request(host, port, request):
     """
@@ -59,12 +59,14 @@ def forward_request(host, port, request):
     try:
         backend.connect((host, port))
         backend.sendall(request.encode())
+        # print(request.encode())
         response = b""
         while True:
             chunk = backend.recv(4096)
             if not chunk:
                 break
             response += chunk
+        # print(response)
         return response
     except socket.error as e:
       print("Socket error: {}".format(e))
@@ -105,11 +107,29 @@ def resolve_routing_policy(hostname, routes):
             # Use a dummy host to raise an invalid connection
             proxy_host = '127.0.0.1'
             proxy_port = '9000'
-        elif len(value) == 1:
+        elif len(proxy_map) == 1:
             proxy_host, proxy_port = proxy_map[0].split(":", 2)
-        #elif: # apply the policy handling 
-        #   proxy_map
-        #   policy
+        elif policy == "round-robin":
+            # Maintain round-robin state using function attributes
+            if not hasattr(resolve_routing_policy, 'round_robin_counter'):
+                resolve_routing_policy.round_robin_counter = {}
+            
+            # Initialize counter for this hostname if not exists
+            if hostname not in resolve_routing_policy.round_robin_counter:
+                resolve_routing_policy.round_robin_counter[hostname] = 0
+            
+            # Get current index
+            index = resolve_routing_policy.round_robin_counter[hostname]
+            
+            # Select backend using modulo for circular rotation
+            selected_backend = proxy_map[index % len(proxy_map)]
+            proxy_host, proxy_port = selected_backend.split(":", 1)
+            
+            # Increment counter for next request
+            resolve_routing_policy.round_robin_counter[hostname] = (index + 1) % len(proxy_map)
+            
+            print("[Proxy] Round-robin: {} -> backend {}:{} (index {}/{})".format(
+                hostname, proxy_host, proxy_port, index % len(proxy_map), len(proxy_map) - 1))
         else:
             # Out-of-handle mapped host
             proxy_host = '127.0.0.1'
@@ -117,6 +137,7 @@ def resolve_routing_policy(hostname, routes):
     else:
         print("[Proxy] resolve route of hostname {} is a singulair to".format(hostname))
         proxy_host, proxy_port = proxy_map.split(":", 2)
+
 
     return proxy_host, proxy_port
 
@@ -142,6 +163,10 @@ def handle_client(ip, port, conn, addr, routes):
     request = conn.recv(1024).decode()
 
     # Extract hostname
+
+    # Original code did not extract hostname correctly
+    hostname = ""
+    
     for line in request.splitlines():
         if line.lower().startswith('host:'):
             hostname = line.split(':', 1)[1].strip()

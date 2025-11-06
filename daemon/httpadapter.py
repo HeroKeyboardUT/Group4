@@ -110,22 +110,91 @@ class HttpAdapter:
         # Handle request hook
         if req.hook:
             print("[HttpAdapter] hook in route-path METHOD {} PATH {}".format(req.hook._route_path,req.hook._route_methods))
-            
             # ????
             # req.hook(headers = "bksysnet",body = "get in touch")
-
-
+            
             #
             # TODO: handle for App hook here
             #
-            print(req.body)
-            # print(req.hook(headers=req.headers, body=req.body))
 
+            try:
+                # Gọi hook handler và lấy kết quả
+                hook_result = req.hook(headers=req.headers, body=req.body)
+                
+                if hook_result is not None:
+                    print("[HttpAdapter] Hook returned data: {}...".format(
+                        str(hook_result)[:80]))
+                    
+                    # Xác định Content-Type dựa trên nội dung trả về
+                    content = hook_result
+                    if isinstance(hook_result, str):
+                        # Detect content type
+                        if hook_result.strip().startswith('<'):
+                            # HTML content
+                            content_type = 'text/html; charset=utf-8'
+                        elif '=' in hook_result and '&' in hook_result:
+                            # Form data: status=success&message=OK
+                            content_type = 'application/x-www-form-urlencoded'
+                        else:
+                            # Plain text
+                            content_type = 'text/plain; charset=utf-8'
+                        
+                        content_bytes = hook_result.encode('utf-8')
+                    else:
+                        # Fallback for other types
+                        content_type = 'text/plain'
+                        content_bytes = str(hook_result).encode('utf-8')
+                    
+                    # Build response header
+                    response_header = "HTTP/1.1 200 OK\r\n"
+                    response_header += "Content-Type: {}\r\n".format(content_type)
+                    response_header += "Content-Length: {}\r\n".format(len(content_bytes))
+                    response_header += "Connection: close\r\n"
+                    response_header += "\r\n"
+                    
+                    # Combine header + body
+                    response = response_header.encode('utf-8') + content_bytes
+                    
+                    # Send response
+                    conn.sendall(response)
+                    conn.close()
+                    return  # Exit early sau khi gửi response
+                    
+                else:
+                    print("[HttpAdapter] Hook executed but returned None")
+                    # Hook không trả về gì → tiếp tục xử lý static files
+                    
+            except Exception as e:
+                print("[HttpAdapter] Hook execution error: {}".format(e))
+                # Trả về error response
+                error_body = "status=error&message=Internal Server Error"
+                response_header = "HTTP/1.1 500 Internal Server Error\r\n"
+                response_header += "Content-Type: application/x-www-form-urlencoded\r\n"
+                response_header += "Content-Length: {}\r\n".format(len(error_body))
+                response_header += "Connection: close\r\n"
+                response_header += "\r\n"
+                
+                response = response_header.encode('utf-8') + error_body.encode('utf-8')
+                conn.sendall(response)
+                conn.close()
+                return
 
+            
+        # Task 1A
+        if req.method == "POST" and req.path == "/login":
+            if req.auth == True:
+                req.path = "/index.html"
+                req.method = "GET"
+            else:
+                req.path = "/login.html"
+        # Task 1B
+        if req.method == "GET" and req.path == "/index.html":
+            if req.auth == False:
+                print("[HttpAdapter] Unauthorized access, redirecting to /login.html")
+                req.path = "/login.html"
 
         # Build response
         response = resp.build_response(req)
-
         # print(response)
         conn.sendall(response)
         conn.close()
@@ -168,7 +237,7 @@ class HttpAdapter:
             response.url = req.url
 
         # Add new cookies from the server.
-        response.cookies = extract_cookies(req)
+        response.cookies = self.extract_cookies(req)
 
         # Give the Response some context.
         response.request = req
@@ -177,32 +246,32 @@ class HttpAdapter:
         return response
 
     # def get_connection(self, url, proxies=None):
-        # """Returns a url connection for the given URL. 
+    #     """Returns a url connection for the given URL. 
 
-        # :param url: The URL to connect to.
-        # :param proxies: (optional) A Requests-style dictionary of proxies used on this request.
-        # :rtype: int
-        # """
+    #     :param url: The URL to connect to.
+    #     :param proxies: (optional) A Requests-style dictionary of proxies used on this request.
+    #     :rtype: int
+    #     """
 
-        # proxy = select_proxy(url, proxies)
+    #     proxy = select_proxy(url, proxies)
 
-        # if proxy:
-            # proxy = prepend_scheme_if_needed(proxy, "http")
-            # proxy_url = parse_url(proxy)
-            # if not proxy_url.host:
-                # raise InvalidProxyURL(
-                    # "Please check proxy URL. It is malformed "
-                    # "and could be missing the host."
-                # )
-            # proxy_manager = self.proxy_manager_for(proxy)
-            # conn = proxy_manager.connection_from_url(url)
-        # else:
-            # # Only scheme should be lower case
-            # parsed = urlparse(url)
-            # url = parsed.geturl()
-            # conn = self.poolmanager.connection_from_url(url)
+    #     if proxy:
+    #         proxy = prepend_scheme_if_needed(proxy, "http")
+    #         proxy_url = parse_url(proxy)
+    #         if not proxy_url.host:
+    #             raise InvalidProxyURL(
+    #                 "Please check proxy URL. It is malformed "
+    #                 "and could be missing the host."
+    #             )
+    #         proxy_manager = self.proxy_manager_for(proxy)
+    #         conn = proxy_manager.connection_from_url(url)
+    #     else:
+    #         # Only scheme should be lower case
+    #         parsed = urlparse(url)
+    #         url = parsed.geturl()
+    #         conn = self.poolmanager.connection_from_url(url)
 
-        # return conn
+    #     return conn
 
 
     def add_headers(self, request):

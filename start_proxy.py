@@ -79,6 +79,7 @@ def parse_virtual_hosts(config_file):
             dist_policy_map = policy_match.group(1)
         else: #default policy is round_robin
             dist_policy_map = 'round-robin'
+       
             
         #
         # @bksysnet: Build the mapping and policy

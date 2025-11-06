@@ -66,6 +66,11 @@ class Request():
         #: Hook point for routed mapped-path
         self.hook = None
 
+
+        #: Authentication 
+        self.auth = None
+
+
     def extract_request_line(self, request):
         try:
             lines = request.splitlines()
@@ -92,6 +97,7 @@ class Request():
         """Prepares the entire request with the given parameters."""
 
         # Prepare the request line from the request header     
+        # print(request)
         self.method, self.path, self.version = self.extract_request_line(request)
         print("[Request] {} path {} version {}".format(self.method, self.path, self.version))
 
@@ -105,6 +111,7 @@ class Request():
         if not routes == {}:
             self.routes = routes
             self.hook = routes.get((self.method, self.path))
+
             #
             # self.hook manipulation goes here
             # ...
@@ -116,37 +123,47 @@ class Request():
             #
             #  TODO: implement the cookie function here
             #        by parsing the header            #
-        if cookies:
-            if isinstance(cookies, dict):
-                # Convert dict to cookie string
-                # {'auth': 'true', 'session': 'xyz'} → 'auth=true; session=xyz'
-                cookie_pairs = []
-                for key, value in cookies.items():
-                    cookie_pairs.append("{}={}".format(key, value))
-                cookie_string = '; '.join(cookie_pairs)
-                
-                self.headers["Cookie"] = cookie_string
-                print("[Request] Prepared Cookie header: '{}'".format(cookie_string))
-        # self.body = self.prepare_body(request)
+        self.prepare_cookies(cookies)
+
+        # Prepare Body
+        if request.find('\r\n\r\n') != -1:
+            self.prepare_body(request.split("\r\n\r\n",1)[1], files=None, json=None)
+
+        self.auth = False
+        if self.method == "POST" and self.path == "/login":
+            self.prepare_auth(self.body, url=self.path)
         return
 
     def prepare_body(self, data, files, json=None):
-        self.prepare_content_length(self.body)
-        self.body = body
+        # self.prepare_content_length(self.body)
+        # self.body = body
         #
         # TODO prepare the request authentication
         #
 	# self.auth = ...
+        if data:
+            self.body = data    
+            self.prepare_content_length(self.body)
+
+        # if files:
+            
+        # if json:
+           
         return
 
+    
 
     def prepare_content_length(self, body):
-        self.headers["Content-Length"] = "0"
+        # self.headers["Content-Length"] = "0"
         #
         # TODO prepare the request authentication
         #
 	# self.auth = ...
-        
+        if body:
+            length = len(body.encode('utf-8')) if isinstance(body, str) else len(body)
+            if not self.headers:
+                self.headers = {}
+            self.headers['Content-Length'] = str(length)
         return
 
 
@@ -155,7 +172,40 @@ class Request():
         # TODO prepare the request authentication
         #
 	# self.auth = ...
+        params = {}
+        for pair in auth.split('&'):
+            if '=' in pair:
+                key, value = pair.split('=', 1)
+                params[key] = value
+        
+        username = params.get('username', '')
+        password = params.get('password', '')
+        if url == "/login":
+            if username == "admin" and password == "password":
+                self.auth = True
+                self.prepare_cookies("auth=true")
+            else:
+                self.auth = False
+            
         return
 
+    
     def prepare_cookies(self, cookies):
+            # self.headers["Cookie"] = cookies
+        if not self.cookies:
+            self.cookies = {}
+            
+        if cookies:
+            # Parse cookie string
+            cookie_pairs = cookies.split(';')
+            for pair in cookie_pairs:
+                if '=' in pair:
+                    key, val = pair.strip().split('=', 1)
+                    self.cookies[key] = val
+            # print("[Request] Parsed cookies:", self.cookies)
+            
+            # Also set in headers for compatibility
             self.headers["Cookie"] = cookies
+            print("[Request] Set Cookie header:", self.headers["Cookie"])
+        
+        return

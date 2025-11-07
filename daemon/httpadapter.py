@@ -186,16 +186,22 @@ class HttpAdapter:
                 req.path = "/index.html"
                 req.method = "GET"
             else:
-                req.path = "/login.html"
+                req.path="/401.html"
+                resp.status_code = 401
+                resp.reason = "Unauthorized"
         # Task 1B
         if req.method == "GET" and req.path == "/index.html":
             if req.auth == False:
-                print("[HttpAdapter] Unauthorized access, redirecting to /login.html")
-                req.path = "/login.html"
+                print("[HttpAdapter] Unauthorized access, return 401")
+                req.path = "/401.html"
+                resp.status_code = 401
+                resp.reason = "Unauthorized"
         if req.method == "GET" and req.path == "/chat.html":
             if req.auth == False:
-                print("[HttpAdapter] Unauthorized access, redirecting to /login.html")
-                req.path = "/login.html"
+                print("[HttpAdapter] Unauthorized access, return 401")
+                req.path = "/401.html"
+                resp.status_code = 401
+                resp.reason = "Unauthorized"
 
 
         # Build response

@@ -130,6 +130,12 @@ class Request():
             self.prepare_body(request.split("\r\n\r\n",1)[1], files=None, json=None)
 
         self.auth = False
+
+        if cookies is None:
+            self.auth = False
+        elif 'auth=true' in cookies:
+            self.auth = True
+
         if self.method == "POST" and self.path == "/login":
             self.prepare_auth(self.body, url=self.path)
         return

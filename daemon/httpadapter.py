@@ -24,6 +24,8 @@ from .request import Request
 from .response import Response
 from .dictionary import CaseInsensitiveDict
 
+import json
+
 class HttpAdapter:
     """
     A mutable :class:`HTTP adapter <HTTP adapter>` for managing client connections
@@ -104,7 +106,6 @@ class HttpAdapter:
 
         # Handle the request
         msg = conn.recv(1024).decode()
-        # print(msg.strip())
         req.prepare(msg, routes)
 
         # Handle request hook
@@ -118,32 +119,28 @@ class HttpAdapter:
             #
 
             try:
-                # Gọi hook handler và lấy kết quả
+                # Call hook handler and get result
                 hook_result = req.hook(headers=req.headers, body=req.body)
                 
                 if hook_result is not None:
                     print("[HttpAdapter] Hook returned data: {}...".format(
                         str(hook_result)[:80]))
                     
-                    # Xác định Content-Type dựa trên nội dung trả về
-                    content = hook_result
+                    # Determine Content-Type based on return type
                     if isinstance(hook_result, str):
-                        # Detect content type
-                        if hook_result.strip().startswith('<'):
-                            # HTML content
+                        # Check if it's JSON string
+                        if hook_result.strip().startswith('{') or hook_result.strip().startswith('['):
+                            content_type = 'application/json'
+                        elif hook_result.strip().startswith('<'):
                             content_type = 'text/html; charset=utf-8'
-                        elif '=' in hook_result and '&' in hook_result:
-                            # Form data: status=success&message=OK
-                            content_type = 'application/x-www-form-urlencoded'
                         else:
-                            # Plain text
                             content_type = 'text/plain; charset=utf-8'
                         
                         content_bytes = hook_result.encode('utf-8')
                     else:
-                        # Fallback for other types
-                        content_type = 'text/plain'
-                        content_bytes = str(hook_result).encode('utf-8')
+                        # For dict, list, etc - convert to JSON
+                        content_type = 'application/json'
+                        content_bytes = json.dumps(hook_result).encode('utf-8')
                     
                     # Build response header
                     response_header = "HTTP/1.1 200 OK\r\n"
@@ -158,18 +155,21 @@ class HttpAdapter:
                     # Send response
                     conn.sendall(response)
                     conn.close()
-                    return  # Exit early sau khi gửi response
+                    return
                     
                 else:
                     print("[HttpAdapter] Hook executed but returned None")
-                    # Hook không trả về gì → tiếp tục xử lý static files
                     
             except Exception as e:
                 print("[HttpAdapter] Hook execution error: {}".format(e))
-                # Trả về error response
-                error_body = "status=error&message=Internal Server Error"
+                # Return JSON error response
+                error_body = json.dumps({
+                    'status': 'error',
+                    'message': 'Internal Server Error: {}'.format(str(e))
+                })
+                
                 response_header = "HTTP/1.1 500 Internal Server Error\r\n"
-                response_header += "Content-Type: application/x-www-form-urlencoded\r\n"
+                response_header += "Content-Type: application/json\r\n"
                 response_header += "Content-Length: {}\r\n".format(len(error_body))
                 response_header += "Connection: close\r\n"
                 response_header += "\r\n"
@@ -192,6 +192,11 @@ class HttpAdapter:
             if req.auth == False:
                 print("[HttpAdapter] Unauthorized access, redirecting to /login.html")
                 req.path = "/login.html"
+        if req.method == "GET" and req.path == "/chat.html":
+            if req.auth == False:
+                print("[HttpAdapter] Unauthorized access, redirecting to /login.html")
+                req.path = "/login.html"
+
 
         # Build response
         response = resp.build_response(req)

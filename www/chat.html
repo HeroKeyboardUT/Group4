@@ -3,6 +3,27 @@
   <head>
     <title>P2P Chat</title>
     <meta charset="utf-8" />
+    <style>
+      .handshake-status {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 3px;
+        font-size: 12px;
+        margin-left: 10px;
+      }
+      .handshake-accepted {
+        background-color: #4caf50;
+        color: white;
+      }
+      .handshake-none {
+        background-color: #ff9800;
+        color: white;
+      }
+      .current-peer {
+        background-color: #e3f2fd;
+        font-weight: bold;
+      }
+    </style>
   </head>
   <body>
     <h1>P2P Chat Room</h1>
@@ -57,6 +78,8 @@
       let lastMessageCount = 0;
       let lastMessageTimestamp = 0;
       let isPolling = false;
+      let handshakes = {};
+      let currentPeerId = null; // Track current peer ID
 
       async function request(method, path, data = null) {
         try {
@@ -109,25 +132,72 @@
 
       async function loadPeers() {
         const data = await request("GET", "/api/peers");
+        const handshakeData = await request("GET", "/api/handshakes");
+
+        if (handshakeData.status === "success") {
+          handshakes = handshakeData.handshakes || {};
+        }
+
         if (data.status === "success" && data.peers) {
           if (data.peers.length !== lastPeerCount) {
             lastPeerCount = data.peers.length;
             let html = "<ul>";
             data.peers.forEach((p) => {
+              const isCurrentPeer = p.id === currentPeerId;
+              const isHandshaked = handshakes[p.id]?.status === "accepted";
+              const statusClass = isHandshaked
+                ? "handshake-accepted"
+                : "handshake-none";
+              const statusText = isHandshaked ? "✓ Connected" : "Not Connected";
+
               html +=
-                "<li>" +
-                p.username +
-                " (" +
-                p.id +
-                ") - " +
-                p.ip +
-                ":" +
-                p.port +
-                "</li>";
+                "<li" + (isCurrentPeer ? ' class="current-peer"' : "") + ">";
+              html += p.username + " (" + p.id + ") - " + p.ip + ":" + p.port;
+
+              // Only show status and connect button if not current peer
+              if (!isCurrentPeer) {
+                html +=
+                  '<span class="handshake-status ' +
+                  statusClass +
+                  '">' +
+                  statusText +
+                  "</span>";
+
+                if (!isHandshaked) {
+                  html +=
+                    " <button onclick=\"doHandshake('" +
+                    p.id +
+                    "')\">Connect</button>";
+                }
+              } else {
+                html += ' <span style="color: #1976d2;">(You)</span>';
+              }
+
+              html += "</li>";
             });
             html += "</ul>";
             document.getElementById("peerList").innerHTML = html;
           }
+        }
+      }
+
+      async function doHandshake(peerId) {
+        showStatus("Connecting to " + peerId + "...");
+        const data = await request("POST", "/api/handshake", {
+          peer_id: peerId,
+        });
+
+        if (data.status === "success") {
+          showStatus(
+            "Connected with " +
+              peerId +
+              " (" +
+              (data.peer_username || "Unknown") +
+              ")"
+          );
+          loadPeers();
+        } else {
+          showStatus("Connection failed: " + (data.message || "Unknown error"));
         }
       }
 
@@ -280,7 +350,12 @@
       }, 5000);
 
       // Initial load
-      window.onload = () => {
+      window.onload = async () => {
+        // Get current peer ID from URL or detect from first load
+        const urlParams = new URLSearchParams(window.location.search);
+        const port = window.location.port;
+        currentPeerId = "peer_" + port;
+
         loadPeers();
         loadChannels();
         loadMessages();

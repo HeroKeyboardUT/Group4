@@ -28,7 +28,8 @@ peer_config = {
     'connected_peers': {},
     'messages': [],
     'channels': {},
-    'peer_list': []
+    'peer_list': [],
+    'handshakes': {}  # Track handshake status: peer_id -> {'status': 'pending'|'accepted', 'timestamp': time}
 }
 
 app = WeApRous()
@@ -100,8 +101,50 @@ def handle_p2p_connection(conn, addr):
     try:
         request = conn.recv(2048).decode()
         if '\r\n\r\n' in request:
+            # Parse request line to get path
+            lines = request.split('\r\n')
+            request_line = lines[0]
+            parts = request_line.split(' ')
+            path = parts[1] if len(parts) > 1 else ''
+            
             body = request.split('\r\n\r\n', 1)[1]
             data = json.loads(body)
+            
+            # Handle handshake request
+            if path == '/p2p/handshake':
+                from_peer = data.get('from')
+                username = data.get('username', 'Unknown')
+                
+                print("[Peer] Handshake request from {} ({})".format(username, from_peer))
+                
+                # Accept handshake
+                peer_config['handshakes'][from_peer] = {
+                    'status': 'accepted',
+                    'timestamp': time.time(),
+                    'username': username
+                }
+                
+                response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{}"
+                conn.sendall(response.format(json.dumps({
+                    'status': 'accepted',
+                    'peer_id': peer_config['peer_id'],
+                    'username': peer_config['username']
+                })).encode())
+                return
+            
+            # Handle regular message
+            from_peer = data.get('from', 'unknown')
+            msg_type = data.get('type', 'direct')
+            
+            # Check handshake only for direct and broadcast messages, not for channel
+            if msg_type in ['direct', 'broadcast']:
+                if from_peer not in peer_config['handshakes'] or peer_config['handshakes'][from_peer]['status'] != 'accepted':
+                    response = "HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\n\r\n{}"
+                    conn.sendall(response.format(json.dumps({
+                        'status': 'error',
+                        'message': 'Handshake required'
+                    })).encode())
+                    return
             
             # Store message
             with message_lock:
@@ -109,7 +152,7 @@ def handle_p2p_connection(conn, addr):
                     'from': data.get('from', 'unknown'),
                     'to': 'me',
                     'content': data.get('message', ''),
-                    'type': data.get('type', 'direct'),
+                    'type': msg_type,
                     'channel': data.get('channel', '')
                 })
                 
@@ -274,6 +317,78 @@ def poll_channels(headers="guest", body="anonymous"):
         'timestamp': time.time()
     })
 
+@app.route('/api/handshake', methods=['POST'])
+def handshake_peer(headers="guest", body="anonymous"):
+    """Initiate handshake with another peer."""
+    try:
+        data = json.loads(body) if body != "anonymous" else {}
+        to_peer_id = data.get('peer_id')
+        
+        if not to_peer_id:
+            return json.dumps({'status': 'error', 'message': 'Missing peer_id'})
+        
+        # Get peer info from server
+        peer_info = send_http_to_server('POST', '/connect-peer', {'peer_id': to_peer_id})
+        
+        if peer_info.get('status') == 'success':
+            ip = peer_info['ip']
+            port = int(peer_info['port'])
+            
+            # Send handshake request
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(3.0)
+                sock.connect((ip, port + 1000))
+                
+                handshake_data = {
+                    'from': peer_config['peer_id'],
+                    'username': peer_config['username']
+                }
+                body_str = json.dumps(handshake_data)
+                request = "POST /p2p/handshake HTTP/1.1\r\n"
+                request += "Host: {}:{}\r\n".format(ip, port + 1000)
+                request += "Content-Type: application/json\r\n"
+                request += "Content-Length: {}\r\n".format(len(body_str))
+                request += "\r\n{}".format(body_str)
+                
+                sock.sendall(request.encode())
+                response = sock.recv(1024).decode()
+                sock.close()
+                
+                if '\r\n\r\n' in response:
+                    body_part = response.split('\r\n\r\n', 1)[1]
+                    result = json.loads(body_part) if body_part else {}
+                    
+                    if result.get('status') == 'accepted':
+                        # Store handshake
+                        peer_config['handshakes'][to_peer_id] = {
+                            'status': 'accepted',
+                            'timestamp': time.time(),
+                            'username': result.get('username', 'Unknown')
+                        }
+                        
+                        return json.dumps({
+                            'status': 'success',
+                            'message': 'Handshake accepted',
+                            'peer_username': result.get('username')
+                        })
+                
+                return json.dumps({'status': 'error', 'message': 'Handshake rejected'})
+            except Exception as e:
+                return json.dumps({'status': 'error', 'message': 'Connection failed: {}'.format(str(e))})
+        
+        return json.dumps({'status': 'error', 'message': 'Peer not found'})
+    except Exception as e:
+        return json.dumps({'status': 'error', 'message': str(e)})
+
+@app.route('/api/handshakes', methods=['GET'])
+def get_handshakes(headers="guest", body="anonymous"):
+    """Get list of handshaked peers."""
+    return json.dumps({
+        'status': 'success',
+        'handshakes': peer_config['handshakes']
+    })
+
 @app.route('/api/send', methods=['POST'])
 def send_direct(headers="guest", body="anonymous"):
     """Send direct P2P message."""
@@ -284,6 +399,10 @@ def send_direct(headers="guest", body="anonymous"):
         
         if not to_peer_id or not message:
             return json.dumps({'status': 'error', 'message': 'Missing fields'})
+        
+        # Check handshake status
+        if to_peer_id not in peer_config['handshakes'] or peer_config['handshakes'][to_peer_id]['status'] != 'accepted':
+            return json.dumps({'status': 'error', 'message': 'Handshake required. Please handshake first.'})
         
         peer_info = send_http_to_server('POST', '/connect-peer', {'peer_id': to_peer_id})
         
@@ -334,8 +453,14 @@ def broadcast(headers="guest", body="anonymous"):
             }
             
             sent = 0
+            failed = []
             for peer in peers_data.get('peers', []):
                 if peer['id'] != peer_config['peer_id']:
+                    # Check handshake for broadcast
+                    if peer['id'] not in peer_config['handshakes'] or peer_config['handshakes'][peer['id']]['status'] != 'accepted':
+                        failed.append(peer['id'])
+                        continue
+                    
                     if send_p2p_message(peer['ip'], int(peer['port']) + 1000, msg_data):
                         sent += 1
             
@@ -350,7 +475,11 @@ def broadcast(headers="guest", body="anonymous"):
                 message_update_flag['updated'] = True
                 message_update_flag['timestamp'] = time.time()
             
-            return json.dumps({'status': 'success', 'message': 'Sent to {} peers'.format(sent)})
+            msg = 'Sent to {} peers'.format(sent)
+            if failed:
+                msg += ' ({} peers require handshake first)'.format(len(failed))
+            
+            return json.dumps({'status': 'success', 'message': msg})
         
         return json.dumps({'status': 'error'})
     except Exception as e:
@@ -402,6 +531,7 @@ def send_to_channel(headers="guest", body="anonymous"):
                 if member['id'] != peer_config['peer_id']:
                     peer_info = send_http_to_server('POST', '/connect-peer', {'peer_id': member['id']})
                     if peer_info.get('status') == 'success':
+                        # No handshake check for channel messages
                         if send_p2p_message(peer_info['ip'], int(peer_info['port']) + 1000, msg_data):
                             sent += 1
             

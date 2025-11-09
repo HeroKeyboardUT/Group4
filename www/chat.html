@@ -3,27 +3,7 @@
   <head>
     <title>P2P Chat</title>
     <meta charset="utf-8" />
-    <style>
-      .handshake-status {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 3px;
-        font-size: 12px;
-        margin-left: 10px;
-      }
-      .handshake-accepted {
-        background-color: #4caf50;
-        color: white;
-      }
-      .handshake-none {
-        background-color: #ff9800;
-        color: white;
-      }
-      .current-peer {
-        background-color: #e3f2fd;
-        font-weight: bold;
-      }
-    </style>
+    <link href="css/chat.css" rel="stylesheet" />
   </head>
   <body>
     <h1>P2P Chat Room</h1>
@@ -56,13 +36,6 @@
     </div>
 
     <div>
-      <h2>Channel Message</h2>
-      <input type="text" id="channelName" placeholder="Channel" />
-      <input type="text" id="channelMsg" placeholder="Message" />
-      <button onclick="sendToChannel()">Send</button>
-    </div>
-
-    <div>
       <h3>Status</h3>
       <div id="status"></div>
     </div>
@@ -72,14 +45,18 @@
       <div id="messages"></div>
     </div>
 
+    <!-- Channel chat windows container -->
+    <div id="channelWindows"></div>
+
     <script>
       let lastPeerCount = 0;
       let lastChannelCount = 0;
       let lastMessageCount = 0;
       let lastMessageTimestamp = 0;
-      let isPolling = false;
       let handshakes = {};
-      let currentPeerId = null; // Track current peer ID
+      let currentPeerId = null;
+      let channelWindows = {}; // Track open channel windows
+      let channelWindowPositions = {}; // Track window positions
 
       async function request(method, path, data = null) {
         try {
@@ -103,31 +80,6 @@
         setTimeout(() => {
           document.getElementById("status").textContent = "";
         }, 3000);
-      }
-
-      // Long-polling for real-time message updates
-      async function startMessagePolling() {
-        if (isPolling) return;
-        isPolling = true;
-
-        while (isPolling) {
-          try {
-            const data = await request("GET", "/api/messages/poll");
-
-            if (data.status === "success" && data.has_update) {
-              // New messages arrived - update UI immediately
-              console.log("New message notification received!");
-              await loadMessages();
-
-              // Play notification sound (optional)
-              // new Audio('/notification.mp3').play();
-            }
-          } catch (e) {
-            console.error("Polling error:", e);
-            // Wait before retrying
-            await new Promise((resolve) => setTimeout(resolve, 5000));
-          }
-        }
       }
 
       async function loadPeers() {
@@ -206,24 +158,194 @@
         if (data.status === "success" && data.channels) {
           if (data.channels.length !== lastChannelCount) {
             lastChannelCount = data.channels.length;
-            let html = "<ul>";
+            let html = "";
             data.channels.forEach((c) => {
-              html +=
-                "<li>" +
-                c.name +
-                " (Owner: " +
-                c.owner +
-                ", Members: " +
-                c.members +
-                ") ";
+              html += '<div class="channel-list-item">';
+              html += "<div>";
+              html += "<strong>" + c.name + "</strong>";
+              html += " (Owner: " + c.owner + ", Members: " + c.members + ")";
+              html += "</div>";
+              html += "<div>";
               html +=
                 "<button onclick=\"joinChannel('" +
                 c.name +
-                "')\">Join</button></li>";
+                "')\">Join</button>";
+              html +=
+                "<button onclick=\"openChannelWindow('" +
+                c.name +
+                "')\">Open Chat</button>";
+              html += "</div>";
+              html += "</div>";
             });
-            html += "</ul>";
             document.getElementById("channelList").innerHTML = html;
           }
+        }
+      }
+
+      // Open channel chat window
+      function openChannelWindow(channelName) {
+        // Check if window already exists
+        if (channelWindows[channelName]) {
+          // Just show it
+          channelWindows[channelName].classList.add("active");
+          return;
+        }
+
+        // Create new channel window
+        const windowId = "channel-window-" + channelName;
+        const windowDiv = document.createElement("div");
+        windowDiv.id = windowId;
+        windowDiv.className = "channel-window active";
+
+        // Calculate position (cascade windows)
+        const offset = Object.keys(channelWindows).length * 30;
+        const left = 100 + offset;
+        const top = 100 + offset;
+        const width = 400;
+        const height = 450;
+
+        windowDiv.style.left = left + "px";
+        windowDiv.style.top = top + "px";
+        windowDiv.style.width = width + "px";
+        windowDiv.style.height = height + "px";
+
+        channelWindowPositions[channelName] = { left, top };
+
+        windowDiv.innerHTML = `
+          <div class="channel-header" id="header-${channelName}">
+            <h3>Channel: ${channelName}</h3>
+            <button class="channel-close" onclick="closeChannelWindow('${channelName}')">✕</button>
+          </div>
+          <div class="channel-messages" id="channel-messages-${channelName}"></div>
+          <div class="channel-input-area">
+            <input type="text" id="channel-input-${channelName}" placeholder="Type a message..." 
+                   onkeypress="if(event.key==='Enter') sendChannelMessage('${channelName}')">
+            <button onclick="sendChannelMessage('${channelName}')">Send</button>
+          </div>
+        `;
+
+        document.getElementById("channelWindows").appendChild(windowDiv);
+        channelWindows[channelName] = windowDiv;
+
+        // Make window draggable
+        makeDraggable(windowDiv, channelName);
+
+        // Start polling for this channel's messages
+        startChannelMessagePolling(channelName);
+
+        // Auto-join the channel
+        joinChannel(channelName);
+      }
+
+      // Close channel window
+      function closeChannelWindow(channelName) {
+        if (channelWindows[channelName]) {
+          channelWindows[channelName].remove();
+          delete channelWindows[channelName];
+          delete channelWindowPositions[channelName];
+        }
+      }
+
+      // Make window draggable
+      function makeDraggable(windowDiv, channelName) {
+        const header = document.getElementById("header-" + channelName);
+        let isDragging = false;
+        let currentX;
+        let currentY;
+        let initialX;
+        let initialY;
+
+        header.addEventListener("mousedown", dragStart);
+        document.addEventListener("mousemove", drag);
+        document.addEventListener("mouseup", dragEnd);
+
+        function dragStart(e) {
+          initialX = e.clientX - channelWindowPositions[channelName].left;
+          initialY = e.clientY - channelWindowPositions[channelName].top;
+
+          if (e.target === header || e.target.tagName === "H3") {
+            isDragging = true;
+          }
+        }
+
+        function drag(e) {
+          if (isDragging) {
+            e.preventDefault();
+            currentX = e.clientX - initialX;
+            currentY = e.clientY - initialY;
+
+            channelWindowPositions[channelName].left = currentX;
+            channelWindowPositions[channelName].top = currentY;
+
+            windowDiv.style.left = currentX + "px";
+            windowDiv.style.top = currentY + "px";
+          }
+        }
+
+        function dragEnd() {
+          isDragging = false;
+        }
+      }
+
+      // Send message to channel
+      async function sendChannelMessage(channelName) {
+        const input = document.getElementById("channel-input-" + channelName);
+        const msg = input.value.trim();
+
+        if (!msg) return;
+
+        const data = await request("POST", "/api/channel/send", {
+          channel: channelName,
+          message: msg,
+        });
+
+        if (data.status === "success") {
+          input.value = "";
+          updateChannelMessages(channelName);
+        } else {
+          showStatus("Error: " + (data.message || "Failed to send"));
+        }
+      }
+
+      // Poll for channel messages
+      async function startChannelMessagePolling(channelName) {
+        while (channelWindows[channelName]) {
+          try {
+            await updateChannelMessages(channelName);
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          } catch (e) {
+            console.error("Channel polling error:", e);
+            await new Promise((resolve) => setTimeout(resolve, 5000));
+          }
+        }
+      }
+
+      // Update channel messages
+      async function updateChannelMessages(channelName) {
+        const data = await request("GET", "/api/messages");
+
+        if (data.status === "success" && data.messages) {
+          // Filter messages for this channel
+          const channelMessages = data.messages.filter(
+            (m) => m.type === "channel" && m.channel === channelName
+          );
+
+          const messagesDiv = document.getElementById(
+            "channel-messages-" + channelName
+          );
+          if (!messagesDiv) return;
+
+          let html = "";
+          channelMessages.forEach((m) => {
+            const isOwn = m.from === "You";
+            html +=
+              '<div class="channel-message' + (isOwn ? " own" : "") + '">';
+            html += "<strong>" + m.from + ":</strong> " + m.content;
+            html += "</div>";
+          });
+
+          messagesDiv.innerHTML = html;
+          messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
       }
 
@@ -326,47 +448,21 @@
         }
       }
 
-      async function sendToChannel() {
-        const channel = document.getElementById("channelName").value;
-        const msg = document.getElementById("channelMsg").value;
-        if (!channel || !msg) return;
-        const data = await request("POST", "/api/channel/send", {
-          channel: channel,
-          message: msg,
-        });
-        if (data.status === "success") {
-          showStatus(data.message);
-          document.getElementById("channelMsg").value = "";
-          loadMessages();
-        } else {
-          showStatus("Error: " + (data.message || "Failed to send"));
-        }
-      }
-
-      // Periodic refresh for peers and channels
+      // Periodic polling
       setInterval(() => {
         loadPeers();
         loadChannels();
+        loadMessages();
       }, 5000);
 
       // Initial load
       window.onload = async () => {
-        // Get current peer ID from URL or detect from first load
-        const urlParams = new URLSearchParams(window.location.search);
         const port = window.location.port;
         currentPeerId = "peer_" + port;
 
         loadPeers();
         loadChannels();
         loadMessages();
-
-        // Start long-polling for real-time message updates
-        startMessagePolling();
-      };
-
-      // Cleanup on page unload
-      window.onbeforeunload = () => {
-        isPolling = false;
       };
     </script>
   </body>

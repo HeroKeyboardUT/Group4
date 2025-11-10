@@ -245,11 +245,6 @@ class Response():
                 "Cache-Control": "no-cache",
                 "Content-Type": "{}".format(self.headers['Content-Type']),
                 "Content-Length": "{}".format(len(self._content)),
-                "Set-Cookie": "{}".format(reqhdr.get("Cookie", "sessionid=xyz789")),
-        #
-        # TODO prepare the request authentication
-        #
-	# self.auth = ...
                 "Date": "{}".format(datetime.datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")),
                 "Max-Forward": "10",
                 "Pragma": "no-cache",
@@ -257,6 +252,10 @@ class Response():
                 "Warning": "199 Miscellaneous warning",
                 "User-Agent": "{}".format(reqhdr.get("User-Agent", "Chrome/123.0.0.0")),
             }
+        
+        # Task 1A: Set cookie when login successful
+        if request.auth == True:
+            headers["Set-Cookie"] = "auth=true"
 
         # Header text alignment
             #
@@ -275,8 +274,6 @@ class Response():
         )
         
         for key, val in headers.items():
-            if request.auth == False and key == "Set-Cookie":
-                continue
             fmt_header += "{}: {}\r\n".format(key, val)
         
         fmt_header += "\r\n"

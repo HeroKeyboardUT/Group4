@@ -180,28 +180,35 @@ class HttpAdapter:
                 return
 
             
-        # Task 1A
+        # Task 1A: Login authentication (only for backend server)
         if req.method == "POST" and req.path == "/login":
             if req.auth == True:
                 req.path = "/index.html"
                 req.method = "GET"
+                # Skip cookie check for this login redirect
+                req._skip_cookie_check = True
             else:
                 req.path="/401.html"
                 resp.status_code = 401
                 resp.reason = "Unauthorized"
-        # Task 1B
-        if req.method == "GET" and req.path == "/index.html":
-            if req.auth == False:
-                print("[HttpAdapter] Unauthorized access, return 401")
-                req.path = "/401.html"
-                resp.status_code = 401
-                resp.reason = "Unauthorized"
-        if req.method == "GET" and req.path == "/chat.html":
-            if req.auth == False:
-                print("[HttpAdapter] Unauthorized access, return 401")
-                req.path = "/401.html"
-                resp.status_code = 401
-                resp.reason = "Unauthorized"
+        
+        # Task 1B: Cookie-based access control (only for backend server on port 9000)
+        # Chat system (port 5001-5003, 8000) does NOT require authentication
+        if self.port == 9000:  # Only apply to backend server
+            # Skip public pages and login redirect
+            public_pages = ["/login.html", "/401.html"]
+            if hasattr(req, '_skip_cookie_check') and req._skip_cookie_check:
+                print("[HttpAdapter] Skipping cookie check for login redirect")
+            elif req.method == "GET" and req.path not in public_pages:
+                # Re-check cookie value mỗi request
+                cookies = req.headers.get('cookie', '')
+                has_valid_cookie = 'auth=true' in cookies
+                
+                if not has_valid_cookie:
+                    print("[HttpAdapter] Unauthorized access to {} (cookie: {})".format(req.path, cookies))
+                    req.path = "/401.html"
+                    resp.status_code = 401
+                    resp.reason = "Unauthorized"
 
 
         # Build response

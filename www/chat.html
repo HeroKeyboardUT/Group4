@@ -471,9 +471,10 @@
         }
       }
 
-      // Periodic polling for peer list (less critical, every 10 seconds)
+      // Periodic polling for peer list and channels (every 10 seconds)
       setInterval(() => {
         loadPeers();
+        loadChannels(); // Auto-refresh channels too
       }, 10000);
 
       // Initial load
@@ -486,6 +487,7 @@
         loadMessages();
         
         // Start real-time long polling for messages
+        console.log("🚀 Starting long polling for real-time notifications...");
         startMessagePolling();
       };
     </script>

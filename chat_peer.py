@@ -461,6 +461,58 @@ def get_channels(headers="guest", body="anonymous"):
     result = send_http_to_server('GET', '/channels')
     return json.dumps(result)
 
+@app.route('/api/messages/poll', methods=['GET'])
+def poll_messages(headers="guest", body="anonymous"):
+    """Long polling endpoint for real-time message notifications.
+    
+    Holds the connection open until:
+    1. New message arrives (returns immediately)
+    2. Timeout reached (30 seconds)
+    
+    This enables real-time notifications with minimal network overhead.
+    """
+    global message_update_flag, message_lock
+    
+    timeout = 30  # Wait maximum 30 seconds
+    start_time = time.time()
+    
+    # Store initial timestamp to detect new messages
+    with message_lock:
+        initial_timestamp = message_update_flag['timestamp']
+    
+    # Wait for new message or timeout
+    while time.time() - start_time < timeout:
+        with message_lock:
+            # Check if new message arrived (timestamp changed)
+            if message_update_flag['timestamp'] > initial_timestamp:
+                return json.dumps({
+                    'status': 'success',
+                    'has_new_messages': True,
+                    'timestamp': message_update_flag['timestamp']
+                })
+        
+        # Sleep briefly to avoid busy waiting
+        time.sleep(0.5)
+    
+    # Timeout reached, no new messages
+    return json.dumps({
+        'status': 'success',
+        'has_new_messages': False,
+        'timestamp': time.time()
+    })
+
+# ==================== API Aliases (Match assignment requirements) ====================
+
+@app.route('/send-peer', methods=['POST'])
+def send_peer_alias(headers="guest", body="anonymous"):
+    """Alias for /api/send to match assignment requirement."""
+    return send_direct(headers, body)
+
+@app.route('/broadcast-peer', methods=['POST'])
+def broadcast_peer_alias(headers="guest", body="anonymous"):
+    """Alias for /api/broadcast to match assignment requirement."""
+    return broadcast(headers, body)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='P2P Chat Peer')
     parser.add_argument('--username', required=True)

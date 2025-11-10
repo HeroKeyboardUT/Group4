@@ -146,6 +146,20 @@ def channel_members(headers="", body=""):
     except Exception as e:
         return json.dumps({'status': 'error', 'message': str(e)})
 
+# ==================== API Aliases (Match assignment requirements) ====================
+
+@app.route('/add-list', methods=['POST'])
+def add_list(headers="", body=""):
+    """Alias for /submit-info to match assignment requirement (add peer to list)."""
+    return submit_info(headers, body)
+
+@app.route('/login', methods=['POST'])
+def login(headers="", body=""):
+    """Login endpoint to match assignment requirement.
+    Chat server doesn't require authentication, always returns success.
+    """
+    return json.dumps({'status': 'success', 'message': 'Chat server does not require authentication'})
+
 if __name__ == "__main__":
     import argparse
     

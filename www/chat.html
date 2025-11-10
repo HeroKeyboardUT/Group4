@@ -448,12 +448,33 @@
         }
       }
 
-      // Periodic polling
+      // Long polling for real-time message notifications
+      async function startMessagePolling() {
+        while (true) {
+          try {
+            const data = await request("GET", "/api/messages/poll");
+            
+            if (data.has_new_messages) {
+              // New messages arrived, reload immediately
+              console.log(" New message detected! Reloading...");
+              loadMessages();
+              loadChannels();
+            }
+            
+            // Continue polling immediately (no delay)
+            
+          } catch (error) {
+            console.error("Long polling error:", error);
+            // Wait a bit before retrying on error
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+        }
+      }
+
+      // Periodic polling for peer list (less critical, every 10 seconds)
       setInterval(() => {
         loadPeers();
-        loadChannels();
-        loadMessages();
-      }, 5000);
+      }, 10000);
 
       // Initial load
       window.onload = async () => {
@@ -463,7 +484,11 @@
         loadPeers();
         loadChannels();
         loadMessages();
+        
+        // Start real-time long polling for messages
+        startMessagePolling();
       };
     </script>
   </body>
 </html>
+
